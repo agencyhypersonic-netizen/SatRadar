@@ -1,103 +1,138 @@
 from flask import Flask, jsonify, render_template_string
-from skyfield.api import load
 import requests
+from sgp4.api import Satrec, jday
+import datetime
 
 app = Flask(__name__)
-ts = load.timescale()
 
-cached_sats = None
+# ----------- CACHE -----------
+TLE_CACHE = []
+LAST_FETCH = None
 
-# ---------------- SAFE TLE FETCH ----------------
-def get_tle_data():
-    url = "https://celestrak.org/NORAD/elements/active.txt"
-    
+# ----------- FETCH TLE -----------
+def fetch_tle():
+    global TLE_CACHE, LAST_FETCH
+
+    if LAST_FETCH:
+        return TLE_CACHE  # reuse cache (Render safe)
+
     try:
-        r = requests.get(url, timeout=5)
-        r.raise_for_status()
-        return r.text
-    except:
-        return None
+        url = "https://celestrak.org/NORAD/elements/active.txt"
+        r = requests.get(url, timeout=10)
+        lines = r.text.splitlines()
 
-# ---------------- API ----------------
+        sats = []
+        for i in range(0, len(lines), 3):
+            try:
+                name = lines[i].strip()
+                l1 = lines[i+1].strip()
+                l2 = lines[i+2].strip()
+
+                sat = Satrec.twoline2rv(l1, l2)
+                sats.append((name, sat))
+            except:
+                continue
+
+        TLE_CACHE = sats
+        LAST_FETCH = True
+        return sats
+
+    except:
+        return []
+
+# ----------- COMPUTE POSITION -----------
+def get_positions():
+    sats = fetch_tle()
+
+    now = datetime.datetime.utcnow()
+    jd, fr = jday(now.year, now.month, now.day,
+                  now.hour, now.minute, now.second)
+
+    data = []
+
+    for name, sat in sats[:100]:
+        try:
+            e, r, v = sat.sgp4(jd, fr)
+
+            if e == 0:
+                lat = r[0] % 90
+                lon = r[1] % 180
+
+                data.append({
+                    "name": name,
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "alt": round(r[2], 2)
+                })
+        except:
+            continue
+
+    return data
+
+# ----------- API -----------
 @app.route("/api/satellites")
-def satellites_api():
-    global cached_sats
+def api():
+    data = get_positions()
 
-    try:
-        if cached_sats is None:
-            tle_data = get_tle_data()
-
-            if tle_data:
-                lines = tle_data.splitlines()
-                sats = []
-
-                for i in range(0, len(lines), 3):
-                    try:
-                        name = lines[i].strip()
-                        l1 = lines[i+1].strip()
-                        l2 = lines[i+2].strip()
-                        sats.append(load.tle_file_from_lines([name, l1, l2])[0])
-                    except:
-                        continue
-
-                cached_sats = sats
-
-        if not cached_sats:
-            raise Exception("No satellites loaded")
-
-        now = ts.now()
-        data = []
-
-        for sat in cached_sats[:50]:
-            subpoint = sat.at(now).subpoint()
-
-            data.append({
-                "name": sat.name,
-                "lat": subpoint.latitude.degrees,
-                "lon": subpoint.longitude.degrees,
-                "alt": subpoint.elevation.km
-            })
-
-        return jsonify(data)
-
-    except:
-        # 🔥 HARD FALLBACK (always visible)
+    if not data:
         return jsonify([
-            {"name": "ISS", "lat": 20, "lon": 78, "alt": 420},
-            {"name": "Starlink", "lat": -10, "lon": 40, "alt": 550},
-            {"name": "GPS", "lat": 0, "lon": 0, "alt": 20000}
+            {"name": "Fallback-1", "lat": 20, "lon": 78, "alt": 500},
+            {"name": "Fallback-2", "lat": -10, "lon": 40, "alt": 600}
         ])
 
-# ---------------- FRONTEND ----------------
+    return jsonify(data)
+
+# ----------- FRONTEND -----------
 @app.route("/")
 def home():
     return render_template_string("""
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PST - SatRadar</title>
+<title>PST - SatRadar</title>
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    <style>
-        body { margin:0; background:black; color:white; }
-        #map { height:100vh; }
-        .title {
-            position:absolute;
-            top:10px;
-            left:50px;
-            z-index:999;
-            color:cyan;
-            font-size:18px;
-        }
-    </style>
+<style>
+body { margin:0; background:#050b1a; color:white; font-family:Arial; }
+#map { height:60vh; }
+
+.panel {
+    padding:15px;
+}
+
+.title {
+    color:#00ffc3;
+    font-size:24px;
+}
+
+.card {
+    background:#0b1a2e;
+    padding:15px;
+    margin-top:10px;
+    border-radius:10px;
+}
+
+.big {
+    font-size:28px;
+    color:#00ffc3;
+}
+</style>
 </head>
 
 <body>
 
-<div class="title">🚀 PST - SatRadar</div>
 <div id="map"></div>
+
+<div class="panel">
+    <div class="title">ORBITAL COMMAND</div>
+
+    <div class="card">
+        ACTIVE TARGETS<br>
+        <div class="big" id="count">0</div>
+    </div>
+</div>
 
 <script>
 
@@ -111,17 +146,20 @@ async function loadSatellites(){
     let res = await fetch('/api/satellites');
     let data = await res.json();
 
-    console.log("DATA:", data);
+    document.getElementById("count").innerText = data.length;
 
     layer.clearLayers();
 
     data.forEach(sat=>{
         let m = L.circleMarker([sat.lat, sat.lon], {
-            radius:5,
-            color:"cyan"
+            radius:4,
+            color:"#00ffc3"
         }).addTo(layer);
 
-        m.bindPopup(sat.name);
+        m.bindPopup(
+            "<b>"+sat.name+"</b><br>"+
+            "Alt: "+sat.alt+" km"
+        );
     });
 }
 
@@ -134,6 +172,6 @@ loadSatellites();
 </html>
 """)
 
-# ---------------- RUN ----------------
+# ----------- RUN -----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
