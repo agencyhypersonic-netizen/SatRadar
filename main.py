@@ -1,90 +1,109 @@
-from flask import Flask
+from flask import Flask, jsonify, render_template_string
 from skyfield.api import load
 import numpy as np
 import os
 
 app = Flask(__name__)
 
+# Load satellites
+url = 'https://celestrak.org/NORAD/elements/active.txt'
+satellites = load.tle_file(url)
+
+ts = load.timescale()
+
+@app.route("/api/satellites")
+def get_satellites():
+    now = ts.now()
+    sat_data = []
+
+    for sat in satellites[:100]:  # limit for performance
+        geocentric = sat.at(now)
+        subpoint = geocentric.subpoint()
+
+        sat_data.append({
+            "name": sat.name,
+            "lat": subpoint.latitude.degrees,
+            "lon": subpoint.longitude.degrees,
+            "alt": subpoint.elevation.km
+        })
+
+    return jsonify(sat_data)
+
+
 @app.route("/")
 def home():
-    url = 'https://celestrak.org/NORAD/elements/active.txt'
-    satellites = load.tle_file(url)
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+<title>PST - SatRadar</title>
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
 
-    ts = load.timescale()
-    now = ts.now()
+<style>
+body { margin:0; background:#0a0f1c; color:white; font-family:Arial;}
+#map { height:100vh; }
+.title {
+    position:absolute;
+    top:10px;
+    left:10px;
+    z-index:1000;
+    font-size:20px;
+    font-weight:bold;
+}
+</style>
+</head>
 
-    sat_points = []
-    sat_paths = []
+<body>
 
-    minutes = np.linspace(0, 90, 30)
+<div class="title">🛰 PST - Public Satellite Tracker</div>
+<div id="map"></div>
 
-    for sat in satellites[:20]:
-        positions = []
+<script>
+var map = L.map('map').setView([20, 0], 2);
 
-        for m in minutes:
-            t = ts.utc(
-                now.utc_datetime().year,
-                now.utc_datetime().month,
-                now.utc_datetime().day,
-                now.utc_datetime().hour,
-                now.utc_datetime().minute + int(m)
-            )
+// Dark map
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap'
+}).addTo(map);
 
-            subpoint = sat.at(t).subpoint()
+let markers = [];
 
-            positions.append({
-                "lat": subpoint.latitude.degrees,
-                "lng": subpoint.longitude.degrees
-            })
+async function loadSatellites() {
+    let res = await fetch('/api/satellites');
+    let data = await res.json();
 
-        current = positions[0]
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
 
-        sat_points.append({
-            "name": sat.name,
-            "lat": current["lat"],
-            "lng": current["lng"]
-        })
+    data.forEach(sat => {
+        let marker = L.circleMarker([sat.lat, sat.lon], {
+            radius: 4,
+            color: "#00ffe1"
+        }).addTo(map);
 
-        sat_paths.append({
-            "name": sat.name,
-            "path": positions
-        })
+        marker.bindPopup(
+            "<b>" + sat.name + "</b><br>" +
+            "Lat: " + sat.lat.toFixed(2) + "<br>" +
+            "Lon: " + sat.lon.toFixed(2) + "<br>" +
+            "Alt: " + sat.alt.toFixed(2) + " km"
+        );
 
-    return f"""
-    <html>
-    <head>
-        <title>PST - Public Satellite Tracker</title>
-        <script src="https://unpkg.com/three"></script>
-        <script src="https://unpkg.com/globe.gl"></script>
-        <style>
-            body {{ margin:0; background:#020617; color:white; }}
-            #globe {{ width:100vw; height:100vh; }}
-        </style>
-    </head>
-    <body>
-    <div id="globe"></div>
+        markers.push(marker);
+    });
+}
 
-    <script>
-        const sats = {sat_points};
-        const paths = {sat_paths};
+// refresh every 5 sec
+setInterval(loadSatellites, 5000);
+loadSatellites();
+</script>
 
-        const globe = Globe()(document.getElementById('globe'))
-            .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg');
+</body>
+</html>
+""")
 
-        globe.pointsData(sats)
-            .pointLat(d => d.lat)
-            .pointLng(d => d.lng)
-            .pointColor(() => 'cyan');
 
-        globe.pathsData(paths)
-            .pathPoints(d => d.path)
-            .pathLat(p => p.lat)
-            .pathLng(p => p.lng)
-            .pathColor(() => 'orange');
-    </script>
-    </body>
-    </html>
-    """
-
-port = int(os.environ.get("PORT", 5000))
-app.run(host="0.0.0.0", port=port)
+# 🔥 IMPORTANT FOR RENDER
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
