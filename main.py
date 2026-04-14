@@ -1,10 +1,84 @@
 from flask import Flask, jsonify, render_template_string
 import requests
-import random
 
 app = Flask(__name__)
 
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>SatRadar</title>
+
+<style>
+body {
+    background: #020c1b;
+    color: #00ffc3;
+    font-family: Arial;
+    padding: 20px;
+}
+
+.card {
+    border: 1px solid #00ffc3;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 10px;
+}
+
+.row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #0a2a2a;
+}
+
+input {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+    background: #01111f;
+    color: #00ffc3;
+    border: none;
+}
+
+.tabs {
+    display: flex;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.tab {
+    padding: 8px 12px;
+    border: 1px solid #00ffc3;
+    cursor: pointer;
+}
+
+.active {
+    background: #00ffc3;
+    color: black;
+}
+</style>
+
+</head>
+
+<body>
+
+<h2>🛰 PST - Public Satellite Tracker</h2>
+
+<div class="card">ACTIVE TARGETS: <span id="count">0</span></div>
+<div class="card">OVER INDIA: <span id="india">0</span></div>
+<div class="card">AVG ALTITUDE: <span id="alt">0</span></div>
+
+<input placeholder="Search satellites...">
+
+<div class="tabs">
+    <div class="tab active">ACTIVE</div>
+    <div class="tab">STARLINK</div>
+</div>
+
+<div id="list"></div>
+
 <script>
+
 let allSats = []
 
 async function loadData() {
@@ -13,7 +87,6 @@ async function loadData() {
         let data = await res.json()
 
         allSats = data
-
         updateUI(data)
 
     } catch(e) {
@@ -25,7 +98,7 @@ function updateUI(data) {
     document.getElementById("count").innerText = data.length
 
     document.getElementById("india").innerText =
-        data.filter(() => Math.random() > 0.95).length
+        Math.floor(Math.random() * 10)
 
     document.getElementById("alt").innerText =
         (500 + Math.floor(Math.random()*20000)) + " km"
@@ -39,8 +112,8 @@ function renderList(data) {
     data.slice(0, 100).forEach(sat => {
         html += `
         <div class="row">
-            <div class="name">${sat.name}</div>
-            <div class="coords">LIVE</div>
+            <div>${sat.name}</div>
+            <div>LIVE</div>
         </div>`
     })
 
@@ -79,11 +152,14 @@ document.querySelectorAll(".tab").forEach(tab => {
     })
 })
 
-/* AUTO REFRESH */
 setInterval(loadData, 5000)
-
 loadData()
+
 </script>
+
+</body>
+</html>
+"""
 
 @app.route("/")
 def home():
@@ -93,7 +169,6 @@ def home():
 def satellites():
     try:
         url = "https://celestrak.org/NORAD/elements/active.txt"
-
         headers = {"User-Agent": "Mozilla/5.0"}
 
         res = requests.get(url, headers=headers, timeout=15)
