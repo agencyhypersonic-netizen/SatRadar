@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Orbital Command</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+body {
+    margin:0;
+    background:#020c1b;
+    color:#00ffc3;
+    font-family:Arial;
+}
+
+.header {
+    padding:15px;
+    font-size:20px;
+}
+
+#map {
+    height:60vh;
+}
+
+.panel {
+    padding:15px;
+}
+
+.row {
+    display:flex;
+    justify-content:space-between;
+    padding:8px 0;
+    border-bottom:1px solid #0a2a2a;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">🛰 ORBITAL COMMAND</div>
+
+<div id="map"></div>
+
+<div class="panel">
+<div>ACTIVE TARGETS: <span id="count">0</span></div>
+<div>OVER INDIA: <span id="india">0</span></div>
+</div>
+
+<div id="list" class="panel"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+let map = L.map('map').setView([20, 0], 2)
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+
+let markers = []
+
+async function loadData() {
+    let res = await fetch('/satellites')
+    let data = await res.json()
+
+    document.getElementById("count").innerText = data.length
+
+    document.getElementById("india").innerText =
+        data.filter(s => s.lat > 8 && s.lat < 37 && s.lon > 68 && s.lon < 97).length
+
+    updateMap(data)
+    renderList(data)
+}
+
+function updateMap(data) {
+    markers.forEach(m => map.removeLayer(m))
+    markers = []
+
+    data.forEach(sat => {
+        let marker = L.circleMarker([sat.lat, sat.lon], {
+            radius:3,
+            color:"#00ffc3"
+        }).addTo(map)
+
+        markers.push(marker)
+    })
+}
+
+function renderList(data) {
+    document.getElementById("list").innerHTML =
+        data.slice(0,50).map(s => `
+            <div class="row">
+                <div>${s.name}</div>
+                <div>${s.lat.toFixed(2)}, ${s.lon.toFixed(2)}</div>
+            </div>
+        `).join("")
+}
+
+setInterval(loadData, 5000)
+loadData()
+
+</script>
+
+</body>
+</html>
