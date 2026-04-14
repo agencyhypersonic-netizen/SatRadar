@@ -5,25 +5,34 @@ import os
 app = Flask(__name__)
 
 ts = load.timescale()
-satellites = load.tle_file('https://celestrak.org/NORAD/elements/active.txt')
 
 @app.route("/api/satellites")
 def satellites_api():
-    now = ts.now()
-    data = []
+    try:
+        url = 'https://celestrak.org/NORAD/elements/active.txt'
+        satellites = load.tle_file(url)
 
-    for sat in satellites[:50]:
-        geocentric = sat.at(now)
-        subpoint = geocentric.subpoint()
+        now = ts.now()
+        data = []
 
-        data.append({
-            "name": sat.name,
-            "lat": subpoint.latitude.degrees,
-            "lon": subpoint.longitude.degrees,
-            "alt": subpoint.elevation.km
-        })
+        for sat in satellites[:50]:
+            geocentric = sat.at(now)
+            subpoint = geocentric.subpoint()
 
-    return jsonify(data)
+            data.append({
+                "name": sat.name,
+                "lat": subpoint.latitude.degrees,
+                "lon": subpoint.longitude.degrees,
+                "alt": subpoint.elevation.km
+            })
+
+        return jsonify(data)
+
+    except Exception as e:
+        # fallback if internet fails
+        return jsonify([
+            {"name": "Fallback-Sat", "lat": 20, "lon": 78, "alt": 400}
+        ])
 
 
 @app.route("/")
@@ -46,14 +55,13 @@ body { margin:0; background:#0a0f1c; color:white; font-family:Arial;}
     top:10px;
     left:10px;
     z-index:1000;
-    font-size:18px;
 }
 </style>
 </head>
 
 <body>
 
-<div class="title">🛰 PST - Public Satellite Tracker</div>
+<div class="title">🛰 PST - SatRadar</div>
 <div id="map"></div>
 
 <script>
@@ -76,12 +84,7 @@ async function loadSatellites() {
             color: "#00ffe1"
         }).addTo(map);
 
-        marker.bindPopup(
-            "<b>" + sat.name + "</b><br>" +
-            "Lat: " + sat.lat.toFixed(2) + "<br>" +
-            "Lon: " + sat.lon.toFixed(2)
-        );
-
+        marker.bindPopup(sat.name);
         markers.push(marker);
     });
 }
@@ -94,7 +97,7 @@ loadSatellites();
 </html>
 """
 
-# Render PORT fix
+# Render port fix
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
