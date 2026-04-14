@@ -1,21 +1,29 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template_string
 from skyfield.api import load
-import os
+import traceback
 
 app = Flask(__name__)
 
+# Load timescale
 ts = load.timescale()
 
+# Cache satellites
+cached_sats = None
+
+# ---------------- API ----------------
 @app.route("/api/satellites")
 def satellites_api():
+    global cached_sats
+
     try:
-        url = 'https://celestrak.org/NORAD/elements/active.txt'
-        satellites = load.tle_file(url)
+        if cached_sats is None:
+            url = 'https://celestrak.org/NORAD/elements/active.txt'
+            cached_sats = load.tle_file(url)
 
         now = ts.now()
         data = []
 
-        for sat in satellites[:50]:
+        for sat in cached_sats[:50]:
             geocentric = sat.at(now)
             subpoint = geocentric.subpoint()
 
@@ -29,75 +37,105 @@ def satellites_api():
         return jsonify(data)
 
     except Exception as e:
-        # fallback if internet fails
+        print("ERROR:", e)
+        traceback.print_exc()
+
+        # fallback (always show something)
         return jsonify([
-            {"name": "Fallback-Sat", "lat": 20, "lon": 78, "alt": 400}
+            {"name": "ISS (demo)", "lat": 20, "lon": 78, "alt": 420},
+            {"name": "Starlink (demo)", "lat": -10, "lon": 40, "alt": 550}
         ])
 
-
+# ---------------- FRONTEND ----------------
 @app.route("/")
 def home():
-    return """
+    return render_template_string("""
 <!DOCTYPE html>
 <html>
 <head>
-<title>PST - SatRadar</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PST - SatRadar</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<style>
-body { margin:0; background:#0a0f1c; color:white; font-family:Arial;}
-#map { height:100vh; }
-.title {
-    position:absolute;
-    top:10px;
-    left:10px;
-    z-index:1000;
-}
-</style>
+    <style>
+        body {
+            margin: 0;
+            background: black;
+            color: white;
+            font-family: Arial;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        .title {
+            position: absolute;
+            top: 10px;
+            left: 50px;
+            z-index: 999;
+            font-size: 20px;
+            color: cyan;
+        }
+    </style>
 </head>
 
 <body>
 
-<div class="title">🛰 PST - SatRadar</div>
+<div class="title">🚀 PST - SatRadar</div>
 <div id="map"></div>
 
 <script>
-var map = L.map('map').setView([20, 0], 2);
 
+let map = L.map('map').setView([20, 0], 2);
+
+// Dark map
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-let markers = [];
+// Satellite layer
+let satLayer = L.layerGroup().addTo(map);
 
 async function loadSatellites() {
-    let res = await fetch('/api/satellites');
-    let data = await res.json();
+    try {
+        let res = await fetch('/api/satellites');
+        console.log("API STATUS:", res.status);
 
-    markers.forEach(m => map.removeLayer(m));
-    markers = [];
+        let data = await res.json();
+        console.log("SAT DATA:", data);
 
-    data.forEach(sat => {
-        let marker = L.circleMarker([sat.lat, sat.lon], {
-            radius: 4,
-            color: "#00ffe1"
-        }).addTo(map);
+        satLayer.clearLayers();
 
-        marker.bindPopup(sat.name);
-        markers.push(marker);
-    });
+        data.forEach(sat => {
+            let marker = L.circleMarker([sat.lat, sat.lon], {
+                radius: 4,
+                color: "cyan"
+            }).addTo(satLayer);
+
+            marker.bindPopup(
+                "<b>" + sat.name + "</b><br>" +
+                "Lat: " + sat.lat.toFixed(2) + "<br>" +
+                "Lon: " + sat.lon.toFixed(2) + "<br>" +
+                "Alt: " + sat.alt.toFixed(2) + " km"
+            );
+        });
+
+    } catch (e) {
+        console.error("FETCH ERROR:", e);
+    }
 }
 
+// Refresh every 5 sec
 setInterval(loadSatellites, 5000);
 loadSatellites();
+
 </script>
 
 </body>
 </html>
-"""
+""")
 
-# Render port fix
+# ---------------- RUN ----------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
