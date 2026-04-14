@@ -1,4 +1,3 @@
 flask
-skyfield
-numpy
 requests
+sgp4
