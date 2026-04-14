@@ -3,85 +3,159 @@ import requests
 import random
 
 app = Flask(__name__)
-
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>PST - SatRadar</title>
+<title>PST - OrbitalCommand</title>
+
 <style>
 body {
     margin:0;
-    font-family: Arial;
-    background: #020c1b;
-    color: #00ffc3;
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(180deg,#02121f,#01060f);
+    color:#00ffc3;
 }
 
-.container {
-    padding: 20px;
+/* HEADER */
+.header {
+    padding:20px;
 }
 
 .title {
-    font-size: 22px;
-    text-align:center;
-    margin-bottom:20px;
+    font-size:24px;
+    font-weight:600;
+}
+
+.sub {
+    font-size:12px;
+    opacity:0.6;
+}
+
+/* STATUS */
+.status {
+    margin-top:10px;
+    padding:10px;
+    border:1px solid #00ffc3;
+    border-radius:8px;
+    display:inline-block;
+}
+
+/* METRICS */
+.metrics {
+    padding:15px;
 }
 
 .card {
-    border:1px solid #00ffc3;
+    border:1px solid rgba(0,255,195,0.3);
     border-radius:12px;
     padding:15px;
-    margin-bottom:15px;
+    margin-bottom:12px;
 }
 
-.big {
-    font-size:28px;
-    margin-top:10px;
+.label {
+    font-size:12px;
+    opacity:0.6;
 }
 
-.small {
-    opacity:0.7;
+.value {
+    font-size:32px;
+    margin-top:5px;
 }
 
-input {
+/* TABS */
+.tabs {
+    display:flex;
+    gap:10px;
+    padding:15px;
+}
+
+.tab {
+    padding:8px 15px;
+    border-radius:20px;
+    border:1px solid #00ffc3;
+    cursor:pointer;
+}
+
+.active {
+    background:#00ffc3;
+    color:black;
+}
+
+/* SEARCH */
+.search {
+    padding:15px;
+}
+
+.search input {
     width:100%;
     padding:10px;
     background:#02142b;
     border:none;
-    color:#00ffc3;
     border-radius:8px;
-    margin-top:10px;
+    color:#00ffc3;
+}
+
+/* LIST */
+.list {
+    padding:10px;
+}
+
+.row {
+    display:flex;
+    justify-content:space-between;
+    padding:12px;
+    border-bottom:1px solid rgba(0,255,195,0.1);
+}
+
+.name {
+    font-size:14px;
+}
+
+.coords {
+    font-size:12px;
+    opacity:0.7;
 }
 </style>
+
 </head>
 
 <body>
-<div class="container">
 
-<div class="title">🛰 PST - Public Satellite Tracker</div>
-
-<div class="card">
-    <div class="small">ACTIVE TARGETS</div>
-    <div id="count" class="big">...</div>
+<div class="header">
+    <div class="title">ORB<span style="color:#00ffc3">ITAL</span>COMMAND</div>
+    <div class="sub">Real-time satellite telemetry</div>
+    <div class="status">UPLINK ESTABLISHED</div>
 </div>
 
-<div class="card">
-    <div class="small">OVER INDIA</div>
-    <div id="india" class="big">...</div>
+<div class="metrics">
+    <div class="card">
+        <div class="label">ACTIVE TARGETS</div>
+        <div id="count" class="value">--</div>
+    </div>
+
+    <div class="card">
+        <div class="label">OVER INDIA</div>
+        <div id="india" class="value">--</div>
+    </div>
+
+    <div class="card">
+        <div class="label">AVG ALTITUDE</div>
+        <div id="alt" class="value">--</div>
+    </div>
 </div>
 
-<div class="card">
-    <div class="small">AVG ALTITUDE</div>
-    <div id="alt" class="big">...</div>
+<div class="tabs">
+    <div class="tab active">ACTIVE</div>
+    <div class="tab">STARLINK</div>
+    <div class="tab">STATIONS</div>
 </div>
 
-<div class="card">
-    <div class="small">SATELLITES</div>
-    <input placeholder="Search catalog..."/>
-    <div id="list"></div>
+<div class="search">
+    <input placeholder="Search catalog...">
 </div>
 
-</div>
+<div id="list" class="list"></div>
 
 <script>
 fetch('/satellites')
@@ -90,30 +164,30 @@ fetch('/satellites')
 
     document.getElementById("count").innerText = data.length;
 
-    // fake India count (for now realistic simulation)
     document.getElementById("india").innerText = Math.floor(Math.random()*5);
 
-    // fake avg altitude
     document.getElementById("alt").innerText = (500 + Math.floor(Math.random()*20000)) + " km";
 
     let html = "";
 
-    data.slice(0, 30).forEach(sat => {
+    data.slice(0, 50).forEach(sat => {
         html += `
-        <p>
-        ${sat.name} (${sat.id})
-        </p>
+        <div class="row">
+            <div class="name">${sat.name}</div>
+            <div class="coords">LAT -- | LON --</div>
+        </div>
         `;
     });
 
     document.getElementById("list").innerHTML = html;
-
 });
 </script>
 
 </body>
 </html>
 """
+
+
 
 @app.route("/")
 def home():
